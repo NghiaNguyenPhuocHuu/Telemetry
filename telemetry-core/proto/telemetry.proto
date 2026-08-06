@@ -1,0 +1,20 @@
+// The Data Standard: Defines the structure of telemetry data for devices, including metrics and metadata.
+syntax = "proto3";
+
+package telemetry;
+
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message MetricReading {
+  string device_id = 1;
+  uint64 timestamp = 2; // Epoch timestamp in milliseconds
+  float temperature = 3;
+  float voltage = 4;
+  Vector3 acceleration = 5;
+  Vector3 gyro = 6;
+  map<string, string> metadata = 7; // Optional key-value tags
+}
