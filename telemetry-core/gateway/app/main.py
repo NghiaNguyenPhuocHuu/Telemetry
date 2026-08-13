@@ -1,15 +1,18 @@
 from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 import logging
+import asyncio
 
 from app.config import settings
 from app.services.redis_client import RedisClient
+from app.consumer import StreamConsumer
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Setup Redis client
     redis_client = RedisClient(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
@@ -21,9 +24,29 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to connect to Redis at startup")
     app.state.redis = redis_client
+    
+    # Setup and start consumer as background task
+    consumer = StreamConsumer(redis_client=redis_client)
+    consumer_task = asyncio.create_task(consumer.start())
+    app.state.consumer = consumer
+    app.state.consumer_task = consumer_task
+    logger.info("Consumer background task started")
+    
     try:
         yield
     finally:
+        # Shutdown consumer
+        try:
+            await consumer.stop()
+            # Wait for task to finish (with timeout to avoid hanging)
+            await asyncio.wait_for(consumer_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Consumer task did not complete within timeout, cancelling")
+            consumer_task.cancel()
+        except Exception:
+            logger.exception("Error stopping consumer")
+        
+        # Shutdown Redis
         try:
             await redis_client.close()
         except Exception:

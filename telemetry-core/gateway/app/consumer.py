@@ -28,19 +28,22 @@ class StreamConsumer:
         await self.redis.connect()
         self._running = True
         logger.info("Consumer started, polling stream %s", self.redis.stream_key)
-        # Basic polling loop (XREAD) - placeholder implementation
-        last_id = "$"
+        
+        # Track last seen ID per stream to support multi-stream reads
+        last_ids = {self.redis.stream_key: "$"}
+        
         while self._running:
             try:
                 # Use a small block to avoid busy looping
-                result = await self.redis._client.xread({self.redis.stream_key: last_id}, block=1000, count=10)
+                result = await self.redis._client.xread(last_ids, block=1000, count=10)
                 if result:
                     # result is list of (stream, [(id, {field: value}), ...])
                     for stream, entries in result:
                         for entry_id, mapping in entries:
                             data = mapping.get(b"data") or mapping.get("data")
-                            logger.info("Consumed %s %s bytes", entry_id, len(data) if data else 0)
-                            last_id = entry_id
+                            logger.info("Consumed %s from stream %s: %s bytes", entry_id, stream, len(data) if data else 0)
+                            # Update last_id for this specific stream
+                            last_ids[stream] = entry_id
             except Exception:
                 logger.exception("Error while reading from stream")
                 await asyncio.sleep(1)
