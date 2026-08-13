@@ -1,85 +1,99 @@
-# TelemetryCore — IoT Telemetry Ingestion & Visualization Platform
+# 🚀 TelemetryCore — IoT Telemetry Ingestion & Visualization Platform
 
 Real-time IoT telemetry ingestion, anomaly detection, and 3D visualization platform for edge devices.
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
 ```
-┌─────────────┐
-│ IoT Devices │ ──(Protobuf/HTTP)──>
-└─────────────┘                      
-                               ┌──────────────────────┐
-                               │   FastAPI Gateway    │
-                               │  (/api/v1/telemetry) │
-                               │   (app/main.py)      │
-                               └──────────┬───────────┘
-                                          │
-                                          ↓
-                               ┌──────────────────────┐
-                               │   Redis Stream       │
-                               │ (Bounded, 100K max)  │
-                               └──────────┬───────────┘
-                                          │
-                                          ↓
-                               ┌──────────────────────┐
-                               │  Stream Consumer     │
-                               │ (Background Task)    │
-                               │ (app/consumer.py)    │
-                               └──────────┬───────────┘
-                                          │
-                                          ↓
-                               ┌──────────────────────┐
-                               │ PostgreSQL/TimescaleDB
-                               │  (Time-series DB)    │
-                               │ (Hypertable, Alerts) │
-                               └──────────────────────┘
+     📱 IoT Devices
+        ╰──╮
+           │ Protobuf/HTTP
+           │
+      🔥 FastAPI Gateway
+      ┌────────────────────────────────┐
+      │  POST /api/v1/telemetry        │
+      │  • Accepts binary data         │
+      │  • Zero buffering              │
+      │  • Stream to Redis immediately │
+      └────────────────────────────────┘
+           │
+           │ Raw bytes
+           ↓
+      📦 Redis Stream
+      ┌────────────────────────────────┐
+      │  Bounded Buffer (max 100K)     │
+      │  • Decoupling layer            │
+      │  • Disk-backed persistence     │
+      │  • XREAD blocking reads        │
+      └────────────────────────────────┘
+           │
+           │ XREAD
+           ↓
+      ⚙️ Stream Consumer
+      ┌────────────────────────────────┐
+      │  Background Task (app/main.py) │
+      │  • Polls Redis Stream          │
+      │  • Decodes Protobuf            │
+      │  • Per-stream offset tracking  │
+      │  • Error resilience + retry    │
+      └────────────────────────────────┘
+           │
+           │ INSERT
+           ↓
+      🗄️ PostgreSQL/TimescaleDB
+      ┌────────────────────────────────┐
+      │  • telemetry_readings (hyper)  │
+      │  • alerts (anomalies)          │
+      │  • devices (metadata)          │
+      │  • 1-day time partitioning     │
+      └────────────────────────────────┘
 ```
 
-### Components
+### 📦 Components
 
-#### 1. **Gateway** (`gateway/app/main.py`)
+#### 1. **🔥 Gateway** (`gateway/app/main.py`)
 - FastAPI async HTTP service
 - Ingestion endpoint: `POST /api/v1/telemetry`
 - Accepts binary Protobuf or raw bytes
 - Pushes to Redis Stream immediately (no buffering in memory)
 - Response: `{"status": "ok", "parsed": true/false}`
 
-#### 2. **Redis Stream** (via docker-compose)
+#### 2. **📪 Redis Stream** (via docker-compose)
 - Bounded buffer (max 100K entries)
 - XADD with maxlen=100K to prevent memory overflow
 - Persists to disk (if configured in docker-compose)
 - Acts as a decoupling point between ingestion and processing
 
-#### 3. **Consumer** (`gateway/app/consumer.py`)
+#### 3. **⚙️ Consumer** (`gateway/app/consumer.py`)
 - Background task (runs in FastAPI lifespan)
 - Polls Redis Stream with `XREAD` blocking reads (1s interval)
 - Decodes Protobuf (future: full implementation)
 - Writes decoded telemetry to TimescaleDB
 - Per-stream offset tracking for multi-stream support
 
-#### 4. **Database** (`db/schema.sql`)
+#### 4. **🗄️ Database** (`db/schema.sql`)
 - **TimescaleDB** (PostgreSQL extension)
 - `telemetry_readings` hypertable: time-series partitioned on timestamp
 - `alerts` table: anomaly detection results
 - `devices` table: device metadata
 - Indexes: device_id + timestamp for fast queries
 
-### Configuration
+### ⚙️ Configuration
 
 Settings are centralized in `gateway/app/config.py` using Pydantic:
 
-**Redis:**
+**📪 Redis:**
 - `REDIS_HOST`, `REDIS_PORT` (default: localhost:6379)
 - `REDIS_STREAM_KEY` (default: "telemetry:stream")
 - `REDIS_MAX_STREAM_LEN` (default: 100,000)
 
-**Postgres/TimescaleDB:**
+**🗄️ Postgres/TimescaleDB:**
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `POSTGRES_DSN` (full connection string, takes precedence)
 
 Set via environment variables or `.env` file.
 
-### Protocol Buffer
+### 📋 Protocol Buffer
 
 **Message:** `MetricReading` (proto/telemetry.proto)
 ```protobuf
@@ -102,15 +116,15 @@ message Vector3 {
 
 ---
 
-## Development Setup
+## 🛠️ Development Setup
 
-### Prerequisites
+### ✅ Prerequisites
 - Python 3.10+
 - Docker & Docker Compose
 - Redis (or via docker-compose)
 - PostgreSQL/TimescaleDB (or via docker-compose)
 
-### Install Dependencies
+### 📦 Install Dependencies
 
 ```bash
 # Activate virtual environment
@@ -120,7 +134,7 @@ source .venv/bin/activate
 pip install -r telemetry-core/gateway/requirements.txt
 ```
 
-### Database Setup
+### 🗄️ Database Setup
 
 ```bash
 # Start infrastructure (Redis + PostgreSQL)
@@ -131,7 +145,7 @@ docker-compose up -d
 psql -h localhost -U postgres -d telemetry -f db/schema.sql
 ```
 
-### Run the Gateway
+### 🚀 Run the Gateway
 
 ```bash
 cd telemetry-core/gateway
@@ -144,9 +158,9 @@ The app logs consumer progress and telemetry ingestion in real-time.
 
 ---
 
-## Testing
+## ✅ Testing
 
-### Send a Test Telemetry Reading
+### 📤 Send a Test Telemetry Reading
 
 ```python
 import requests
@@ -168,7 +182,7 @@ response = requests.post(
 print(response.json())  # {"status": "ok", "parsed": true}
 ```
 
-### Query Telemetry from Database
+### 📊 Query Telemetry from Database
 
 ```bash
 psql -h localhost -U postgres -d telemetry
@@ -182,43 +196,43 @@ LIMIT 10;
 
 ---
 
-## Project Status
+## 📈 Project Status
 
 - ✅ Protobuf schema (MetricReading)
 - ✅ FastAPI gateway with binary ingestion
 - ✅ Redis Stream buffering
 - ✅ Stream consumer with background task
-- ✅ PostgreSQL/TimescaleDB schema
-- ⏳ Full Protobuf decoding in consumer
-- ⏳ Anomaly detection pipeline
-- ⏳ React frontend with WebSocket subscriptions
-- ⏳ Visualization (Three.js 3D)
+- ✅ PostgreSQL/TimescaleDB schema & client
+- 🚧 Full Protobuf decoding in consumer
+- 🚧 Anomaly detection pipeline
+- 🚧 React frontend with WebSocket subscriptions
+- 🚧 Visualization (Three.js 3D)
 
 ---
 
-## Next Steps
+## 🎯 Next Steps
 
-1. **Consumer DB Integration**: Wire PostgresClient into consumer for persistent writes
-2. **Anomaly Detection**: Implement rules engine for temperature/voltage/acceleration thresholds
-3. **Integration Tests**: End-to-end tests with Pytest + test data
-4. **Frontend**: React + WebSocket consumer for real-time dashboards
-5. **Load Testing**: Locust for simulating thousands of devices
-
----
-
-## Memory & Performance Notes
-
-- **Zero buffering in app memory**: Telemetry flows directly Redis → DB
-- **Redis bounded**: 100K max entries prevents runaway memory growth
-- **Hypertable partitioning**: 1-day chunks for efficient time-series queries
-- **Connection pooling**: 5-20 Postgres connections (asyncpg)
-- **Async I/O**: Non-blocking Redis/DB operations
+1. **🔗 Consumer DB Integration**: Wire PostgresClient into consumer for persistent writes
+2. **🚨 Anomaly Detection**: Implement rules engine for temperature/voltage/acceleration thresholds
+3. **🧪 Integration Tests**: End-to-end tests with Pytest + test data
+4. **🎨 Frontend**: React + WebSocket consumer for real-time dashboards
+5. **⚡ Load Testing**: Locust for simulating thousands of devices
 
 ---
 
-## References
+## ⚡ Memory & Performance Notes
 
-- [TimescaleDB Docs](https://docs.timescale.com/)
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Protocol Buffers](https://developers.google.com/protocol-buffers)
-- [Redis Streams](https://redis.io/docs/data-types/streams/)
+- **💾 Zero buffering in app memory**: Telemetry flows directly Redis → DB
+- **📪 Redis bounded**: 100K max entries prevents runaway memory growth
+- **📊 Hypertable partitioning**: 1-day chunks for efficient time-series queries
+- **🔌 Connection pooling**: 5-20 Postgres connections (asyncpg)
+- **⚙️ Async I/O**: Non-blocking Redis/DB operations
+
+---
+
+## 📚 References
+
+- 🗄️ [TimescaleDB Docs](https://docs.timescale.com/)
+- 🔥 [FastAPI](https://fastapi.tiangolo.com/)
+- 📦 [Protocol Buffers](https://developers.google.com/protocol-buffers)
+- 📪 [Redis Streams](https://redis.io/docs/data-types/streams/)
