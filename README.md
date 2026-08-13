@@ -1,6 +1,6 @@
 # 🚀 TelemetryCore — IoT Telemetry Ingestion & Visualization Platform
 
-Real-time IoT telemetry ingestion, anomaly detection, and 3D visualization platform for edge devices.
+TelemetryCore is a high-performance, real-time telemetry ingestion and visualization platform designed to stream, process, and display high-frequency data from edge devices and robotics fleets with minimal latency. Built on a microservices architecture, it utilizes Protocol Buffers over high-speed transport streams to deliver compressed binary sensor data into a FastAPI ingestion gateway. Data is instantly buffered through Redis Streams for real-time anomaly detection and low-latency WebSocket broadcasting, while persistent time-series metrics are saved to TimescaleDB for historical analytics. The platform features an interactive 3D dashboard built with React and Three.js, giving developers and operators real-time spatial heatmaps and device telemetry insights in an enterprise-ready, containerized environment.
 
 ## 🏗️ Architecture Overview
 
