@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, status
 from contextlib import asynccontextmanager
 import logging
 import asyncio
@@ -7,8 +7,14 @@ from app.config import settings
 from app.services.redis_client import RedisClient
 from app.consumer import StreamConsumer
 
-logger = logging.getLogger(__name__)
+# 1. Global Import for high-throughput performance
+try:
+    from app.pb.telemetry_pb2 import MetricReading
+except ImportError:
+    MetricReading = None
+    logging.warning("Protobuf definitions not found. Run protoc to generate them.")
 
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,10 +41,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # Shutdown consumer
+        # Shutdown consumer gracefully
         try:
             await consumer.stop()
-            # Wait for task to finish (with timeout to avoid hanging)
             await asyncio.wait_for(consumer_task, timeout=5.0)
         except asyncio.TimeoutError:
             logger.warning("Consumer task did not complete within timeout, cancelling")
@@ -52,37 +57,34 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Error closing Redis client")
 
-
 app = FastAPI(lifespan=lifespan, title=settings.PROJECT_NAME)
 
-
-@app.post("/api/v1/telemetry")
+# 2. Use 202 Accepted for async queues
+@app.post("/api/v1/telemetry", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(request: Request):
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty request body")
 
+    device_id = "unknown"
     parsed = False
-    # Attempt to parse Protobuf if available
-    try:
-        from app.pb import telemetry_pb2  # type: ignore
+    
+    # 3. Optimized parsing without dynamic getattr loops
+    if MetricReading is not None:
+        try:
+            msg = MetricReading()
+            msg.ParseFromString(body)
+            device_id = msg.device_id or "unknown"
+            parsed = True
+        except Exception:
+            logger.exception("Protobuf parse failed, storing raw bytes")
 
-        # Common message names: MetricReading, Telemetry
-        for name in ("MetricReading", "Telemetry"):
-            Message = getattr(telemetry_pb2, name, None)
-            if Message is not None:
-                msg = Message()
-                msg.ParseFromString(body)
-                parsed = True
-                break
-    except Exception:
-        logger.exception("Protobuf parse failed, storing raw bytes")
-
-    # Push to Redis stream
+    # Push to Redis stream (passing device_id as a separate field if your client supports it)
     try:
-        await app.state.redis.add_to_stream(body)
+        # Note: adjust `add_to_stream` signature in your RedisClient if needed to accept device_id
+        await app.state.redis.add_to_stream(body) 
     except Exception:
         logger.exception("Failed to push telemetry to Redis stream")
         raise HTTPException(status_code=500, detail="Failed to store telemetry")
 
-    return {"status": "ok", "parsed": parsed}
+    return {"status": "accepted", "parsed": parsed, "device_id": device_id}

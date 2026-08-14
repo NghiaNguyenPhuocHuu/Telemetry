@@ -1,4 +1,5 @@
 import logging
+import json
 import asyncpg
 from typing import Optional, Dict, Any
 
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 class PostgresClient:
     """AsyncPG client for TimescaleDB/Postgres operations.
     
-    Handles connection pooling and basic CRUD operations for telemetry data.
+    Handles connection pooling and high-performance bulk/single CRUD operations for telemetry data.
     """
 
     def __init__(
@@ -20,16 +21,6 @@ class PostgresClient:
         user: str = "postgres",
         password: str = "",
     ):
-        """Initialize Postgres client.
-        
-        Args:
-            dsn: Full connection string (takes precedence if provided)
-            host: Postgres hostname
-            port: Postgres port
-            database: Database name
-            user: Username
-            password: Password
-        """
         if dsn:
             self.dsn = dsn
         else:
@@ -63,20 +54,7 @@ class PostgresClient:
         gyro: Optional[Dict[str, float]] = None,
         metadata: Optional[Dict[str, str]] = None,
     ) -> int:
-        """Insert a telemetry reading into the database.
-        
-        Args:
-            device_id: Device identifier
-            timestamp: Epoch timestamp in milliseconds
-            temperature: Temperature reading
-            voltage: Voltage reading
-            acceleration: Dict with 'x', 'y', 'z' keys
-            gyro: Dict with 'x', 'y', 'z' keys
-            metadata: Key-value metadata as dict
-            
-        Returns:
-            The inserted row ID
-        """
+        """Insert a single telemetry reading into the database."""
         if not self._pool:
             raise RuntimeError("Database pool not initialized")
 
@@ -107,11 +85,50 @@ class PostgresClient:
                     gyro_data.get("x"),
                     gyro_data.get("y"),
                     gyro_data.get("z"),
-                    meta,
+                    json.dumps(meta),
                 )
                 return result
         except Exception as e:
             logger.exception("Failed to insert telemetry: %s", e)
+            raise
+
+    async def bulk_insert_telemetry(self, records: list[Dict[str, Any]]) -> None:
+        """High-performance bulk insertion for consumer batches using executemany."""
+        if not self._pool:
+            raise RuntimeError("Database pool not initialized")
+
+        query = """
+        INSERT INTO telemetry_readings (
+            device_id, timestamp, temperature, voltage,
+            acceleration_x, acceleration_y, acceleration_z,
+            gyro_x, gyro_y, gyro_z, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        """
+        
+        # Format the batch list into tuples matching the query parameters
+        data = [
+            (
+                r["device_id"], 
+                r["timestamp"], 
+                r["temperature"], 
+                r["voltage"],
+                r["acceleration"].get("x") if r.get("acceleration") else None, 
+                r["acceleration"].get("y") if r.get("acceleration") else None, 
+                r["acceleration"].get("z") if r.get("acceleration") else None,
+                r["gyro"].get("x") if r.get("gyro") else None, 
+                r["gyro"].get("y") if r.get("gyro") else None, 
+                r["gyro"].get("z") if r.get("gyro") else None,
+                json.dumps(r.get("metadata", {}))
+            )
+            for r in records
+        ]
+
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.executemany(query, data)
+                logger.debug("Successfully bulk inserted %d records.", len(data))
+        except Exception as e:
+            logger.exception("Failed to execute bulk insert: %s", e)
             raise
 
     async def get_latest_readings(
