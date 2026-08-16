@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 import logging
 import asyncio
 
 from app.config import settings
+from app.services.websocket_manager import manager
 from app.services.redis_client import RedisClient
 from app.consumer import StreamConsumer
-
+        
 # 1. Global Import for high-throughput performance
 try:
     from app.pb.telemetry_pb2 import MetricReading
@@ -88,3 +89,15 @@ async def ingest(request: Request):
         raise HTTPException(status_code=500, detail="Failed to store telemetry")
 
     return {"status": "accepted", "parsed": parsed, "device_id": device_id}
+
+
+@app.websocket("/ws/telemetry")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and listen for any client messages if needed
+            data = await websocket.receive_text()
+            # Optional: handle client heartbeat or filter requests here
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
