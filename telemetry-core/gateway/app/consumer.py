@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 from app.config import settings
 from app.services.redis_client import RedisClient
 from app.services.postgres_client import PostgresClient
+from app.services.websocket_manager import manager 
 
 #1: Gloabl Import to prevent cac[hing bottlenecks
 try:
@@ -87,7 +88,7 @@ class StreamConsumer:
                     batch_records = []
                     entry_ids_to_ack = []
                     
-                    for stream, entries in result:
+                    for entries in result:
                         for entry_id, mapping in entries:
                             raw_bytes = mapping.get(b"data") or mapping.get(b"payload") or mapping.get("data")
                             
@@ -102,6 +103,10 @@ class StreamConsumer:
                     if batch_records:
                         await self.postgres.bulk_insert_telemetry(batch_records)
                         logger.info("Bulk inserted %d records to Postgres.", len(batch_records))
+                        
+                        for record in batch_records:
+                            # Broadcast to WebSocket clients
+                            await manager.broadcast(record)
 
                     # 4. Acknowledge messages so Redis can free memory (removes them from PEL)
                     if entry_ids_to_ack:
