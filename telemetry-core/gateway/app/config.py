@@ -1,5 +1,10 @@
 import os
-from pydantic_settings import BaseSettings
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get the absolute path of the root 'telemetry-core' directory 
+# (going up two levels from gateway/app/config.py)
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "TelemetryCore Ingestion Gateway"
@@ -20,7 +25,11 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
     POSTGRES_DSN: str = os.getenv("POSTGRES_DSN", "")
 
-    class Config:
-        env_file = ".env"
+    # Explicitly point to the absolute path of the root .env file
+    model_config = SettingsConfigDict(
+        env_file=str(ROOT_DIR / ".env"), 
+        env_file_encoding="utf-8", 
+        extra="ignore"
+    )
 
 settings = Settings()
